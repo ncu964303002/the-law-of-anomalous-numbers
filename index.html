@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Benford Pro Max | AI 自我優化版</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<style>
+:root { --sidebar-width: 350px; --primary: #2563eb; --bg: #f8fafc; --card: #ffffff; --danger: #ef4444; --success: #10b981; }
+body, html { margin: 0; padding: 0; height: 100%; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); overflow: hidden; }
+.wrapper { display: flex; height: 100vh; }
+
+/* Sidebar */
+.sidebar { width: var(--sidebar-width); background: #1e293b; color: white; padding: 25px; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; }
+.sidebar h2 { color: #38bdf8; border-bottom: 1px solid #334155; padding-bottom: 15px; margin-bottom: 20px; }
+
+/* Main Content */
+.main-content { flex: 1; padding: 30px; overflow-y: auto; box-sizing: border-box; position: relative; }
+
+/* UI Elements */
+.card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
+.upload-zone { border: 2px dashed #475569; padding: 20px; text-align: center; border-radius: 8px; cursor: pointer; margin-bottom: 20px; }
+.control-group { margin-bottom: 20px; }
+.tag { display: inline-block; padding: 6px 12px; border-radius: 6px; background: #334155; font-size: 0.85rem; cursor: pointer; margin: 2px; }
+.tag.active { background: var(--primary); }
+.toggle-box { background: #334155; padding: 12px; border-radius: 8px; margin-top: 8px; cursor: pointer; display: flex; justify-content: space-between; }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }
+.stat-item { padding: 15px; border-radius: 8px; background: #f1f5f9; text-align: center; }
+.stat-val { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th { background: #f1f5f9; padding: 12px; text-align: left; position: sticky; top: 0; }
+td { padding: 10px; border-bottom: 1px solid #f1f5f9; }
+.high-risk { background: #fef2f2; border-left: 4px solid var(--danger); }
+
+.btn { border: none; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px; }
+.btn-test { background: #475569; color: white; }
+.btn-export { background: var(--success); color: white; }
+.btn-clear { background: #ef4444; color: white; margin-top: 10px; }
+
+/* Loading */
+#loading { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); color: white; text-align: center; padding-top: 40vh; font-size: 1.2rem; z-index: 9999; }
+
+.info-text { font-size: 0.8rem; color: #94a3b8; margin-bottom: 15px; }
+
+/* 右上角說明按鈕 */
+#help-btn {
+position: absolute;
+top: 20px;
+right: 30px;
+background: #64748b;
+color: white;
+border: none;
+border-radius: 50%;
+width: 44px;
+height: 44px;
+font-size: 1.2rem;
+cursor: pointer;
+box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+z-index: 100;
+}
+
+/* Modal */
+.modal {
+display: none;
+position: fixed;
+z-index: 1000;
+left: 0;
+top: 0;
+width: 100%;
+height: 100%;
+background-color: rgba(0,0,0,0.6);
+}
+.modal-content {
+background-color: #fff;
+margin: 8% auto;
+padding: 30px;
+border-radius: 12px;
+width: 80%;
+max-width: 900px;
+max-height: 80vh;
+overflow-y: auto;
+box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+.close {
+color: #aaa;
+float: right;
+font-size: 28px;
+font-weight: bold;
+cursor: pointer;
+}
+.close:hover { color: #000; }
+.modal h2 { margin-top: 0; color: var(--primary); }
+.modal h3 { color: #1e293b; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div class="wrapper">
+<div class="sidebar">
+<h2>Benford Pro Max</h2>
+
+<div class="upload-zone" onclick="document.getElementById('fileInput').click()">
+<span style="font-size: 1.5rem;">📥</span>
+<p>上傳檔案 (Excel/CSV)</p>
+<input type="file" id="fileInput" hidden accept=".xlsx, .xls, .csv">
+</div>
+
+<button class="btn btn-test" onclick="generateTestData()">🧪 生成 AI 模擬測試數據</button>
+
+<div id="sheetSection" class="control-group" style="display:none; margin-top:20px;">
+<span style="font-size: 0.8rem; color: #94a3b8;">選擇 Excel 工作表</span>
+<div id="sheetList" style="margin-top:10px;"></div>
+</div>
+
+<div id="colSection" class="control-group" style="display:none; margin-top:20px;">
+<span style="font-size: 0.8rem; color: #94a3b8;">選擇分析欄位</span>
+<div id="columnList" style="margin-top:10px;"></div>
+</div>
+
+<div class="control-group" style="margin-top:20px;">
+<span style="font-size: 0.8rem; color: #94a3b8;">分析維度</span>
+<p class="info-text">第一位數：分析數字的最左邊位數分佈（例如 123 的第一位數為 1）。<br>第二位數：分析數字的第二位數分佈（例如 123 的第二位數為 2）。</p>
+<div class="toggle-box" onclick="setMode('first')">
+<span>第一位數</span>
+<input type="radio" name="mode" id="modeFirst" checked>
+</div>
+<div class="toggle-box" onclick="setMode('second')">
+<span>第二位數</span>
+<input type="radio" name="mode" id="modeSecond">
+</div>
+</div>
+
+<p class="info-text" id="limitInfo">上傳資料限制：基於您的裝置效能，建議上限為 0 筆（偵測中...）。</p>
+<p class="info-text">分析平台完全在地端運行，資料不會外傳，確保隱私安全。</p>
+
+<button class="btn btn-export" onclick="exportExcel()">💾 導出分析結果</button>
+<button class="btn btn-clear" onclick="clearData()">🗑️ 清除資料，進行下一筆</button>
+</div>
+
+<div class="main-content">
+<button id="help-btn">?</button>
+
+<div id="dashboard" style="display:none;">
+<div class="stats-grid">
+<div class="stat-item"><div>樣本數</div><div id="statCount" class="stat-val">0</div></div>
+<div class="stat-item"><div>MAD 偏差</div><div id="statMad" class="stat-val">0.0000</div></div>
+<div class="stat-item"><div>風險評估</div><div id="statStatus" class="stat-val">-</div></div>
+</div>
+<div class="card">
+<canvas id="benfordChart" height="100"></canvas>
+</div>
+<div class="card" style="max-height: 400px; overflow-y: auto;">
+<h3>🔍 異常明細 (疑似操縱標色)</h3>
+<table id="anomalyTable">
+<thead id="tableHead"></thead>
+<tbody id="tableBody"></tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+
+<div id="loading">載入中，請稍候...</div>
+
+<!-- 說明 Modal -->
+<div id="helpModal" class="modal">
+<div class="modal-content">
+<span class="close" onclick="closeModal()">&times;</span>
+<h2>Benford Pro Max 使用說明</h2>
+
+<h3>什麼是 Benford 定律？</h3>
+<p>Benford 定律（班佛定律）是一種描述自然產生數字集合中「第一位數」或「第二位數」出現機率的數學規律。簡單來說，在許多真實世界的數據集中（如財務報表、人口統計、河流長度等），數字以 1 開頭的機率約為 30.1%，以 2 開頭約 17.6%，以此類推，呈現對數分佈。</p>
+<p>理論機率表（第一位數）：</p>
+<ul>
+<li>1 → 30.1%</li><li>2 → 17.6%</li><li>3 → 12.5%</li><li>4 → 9.7%</li><li>5 → 7.9%</li>
+<li>6 → 6.7%</li><li>7 → 5.8%</li><li>8 → 5.1%</li><li>9 → 4.6%</li>
+</ul>
+<p>當資料被人為操縱或捏造時，第一位數的分佈往往會偏離這個規律，成為偵測財務舞弊、假帳、異常交易的重要工具。</p>
+
+<h3>系統功能與使用步驟</h3>
+<ol>
+<li><strong>上傳資料</strong>：支援 .xlsx / .xls / .csv 格式。若為多工作表 Excel，會出現工作表選擇介面。</li>
+<li><strong>選擇工作表</strong>（若有多個）→ 選擇要分析的欄位（數字型欄位最佳）。</li>
+<li><strong>選擇分析維度</strong>：第一位數（最常用）或第二位數。</li>
+<li>系統自動計算實際分佈與理論分佈的 MAD（Mean Absolute Deviation）偏差：
+<ul>
+<li>MAD < 0.015 → 低風險（符合自然分佈）</li>
+<li>MAD ≥ 0.015 → 高風險警告（可能有人為操縱）</li>
+</ul>
+</li>
+<li>查看圖表、統計摘要、異常明細（前 100 筆高風險資料）。</li>
+<li><strong>導出報告</strong>：包含 5 個工作表，檔名自動帶日期時間（例如 Benford_Report_20260206_1031.xlsx）</li>
+<li>點擊「清除資料」可重置，進行下一筆分析。</li>
+</ol>
+
+<h3>注意事項與限制</h3>
+<ul>
+<li>建議單次資料量 ≤ ${navigator.hardwareConcurrency * 10000 || 40000} 筆（依您的 CPU 核心數自動估計）。</li>
+<li>超過建議筆數可能導致瀏覽器變慢或當機，請分割檔案後分批分析。</li>
+<li>本工具完全在您的瀏覽器本地執行，資料不會上傳至任何伺服器，隱私安全。</li>
+<li>僅適用於正數資料；負數、小數點後位數過多可能影響準確性。</li>
+</ul>
+
+<p style="text-align:center; margin-top:30px; color:#64748b;">
+Benford Pro Max v2.0 | 純前端在地端工具 | 2026
+</p>
+</div>
+</div>
+
+<script>
+let rawData = [];
+let headers = [];
+let selectedCol = null;
+let selectedSheet = null;
+let chartInstance = null;
+let analysisResult = null;
+let validNumbers = [];
+let anomalies = [];
+let normals = [];
+let wb = null;
+
+const THEO_FIRST = [30.1, 17.6, 12.5, 9.7, 7.9, 6.7, 5.8, 5.1, 4.6];
+const THEO_SECOND = [12.0, 11.4, 10.9, 10.4, 10.0, 9.7, 9.3, 9.0, 8.8, 8.5];
+
+// 效能估計
+const cpuCores = navigator.hardwareConcurrency || 4;
+const dataLimit = Math.max(10000, cpuCores * 10000);
+document.getElementById('limitInfo').innerText = 
+`上傳資料限制：基於您的裝置效能，建議上限為 ${dataLimit} 筆（偵測到 ${cpuCores} 核心 CPU）。超過可能導致瀏覽器卡頓。`;
+
+function showLoading(show) {
+document.getElementById('loading').style.display = show ? 'block' : 'none';
+}
+
+function generateTestData() {
+showLoading(true);
+const testData = [];
+for(let i = 0; i < 1000; i++) {
+const natural = Math.pow(10, Math.random() * 5).toFixed(2);
+const manipulated = Math.floor(Math.random() * 9000) + 1000;
+testData.push({ "交易ID": i+1, "自然數據(符合)": natural, "人為數據(異常)": manipulated });
+}
+wb = null;
+handleNewData(testData, ['TestSheet']);
+showLoading(false);
+}
+
+document.getElementById('fileInput').addEventListener('change', function(e) {
+showLoading(true);
+const file = e.target.files[0];
+const reader = new FileReader();
+reader.onload = function(evt) {
+wb = XLSX.read(evt.target.result, {type: 'array'});
+const sheetNames = wb.SheetNames;
+handleNewData([], sheetNames);
+showLoading(false);
+};
+reader.readAsArrayBuffer(file);
+});
+
+function handleNewData(data, sheetNames) {
+document.getElementById('dashboard').style.display = 'block';
+document.getElementById('sheetSection').style.display = sheetNames.length > 1 ? 'block' : 'none';
+document.getElementById('colSection').style.display = 'none';
+
+const sheetList = document.getElementById('sheetList');
+sheetList.innerHTML = '';
+sheetNames.forEach(sh => {
+const s = document.createElement('div');
+s.className = 'tag'; s.innerText = sh;
+s.onclick = () => { 
+document.querySelectorAll('#sheetList .tag').forEach(t => t.classList.remove('active'));
+s.classList.add('active'); 
+selectedSheet = sh;
+rawData = XLSX.utils.sheet_to_json(wb ? wb.Sheets[sh] : null, {defval: ""});
+if (rawData.length > dataLimit) {
+alert(`資料筆數 (${rawData.length}) 超過建議上限 (${dataLimit})，可能影響效能。建議分割檔案。`);
+}
+headers = Object.keys(rawData[0] || {});
+const colList = document.getElementById('columnList');
+colList.innerHTML = '';
+headers.forEach(h => {
+const c = document.createElement('div');
+c.className = 'tag'; c.innerText = h;
+c.onclick = () => { 
+document.querySelectorAll('#columnList .tag').forEach(t => t.classList.remove('active'));
+c.classList.add('active'); selectedCol = h; run();
+};
+colList.appendChild(c);
+});
+document.getElementById('colSection').style.display = 'block';
+};
+sheetList.appendChild(s);
+});
+
+if (sheetNames.length === 1) {
+selectedSheet = sheetNames[0];
+rawData = data.length ? data : XLSX.utils.sheet_to_json(wb ? wb.Sheets[selectedSheet] : null, {defval: ""});
+headers = Object.keys(rawData[0] || {});
+document.getElementById('colSection').style.display = 'block';
+const colList = document.getElementById('columnList');
+colList.innerHTML = '';
+headers.forEach(h => {
+const c = document.createElement('div');
+c.className = 'tag'; c.innerText = h;
+c.onclick = () => { 
+document.querySelectorAll('#columnList .tag').forEach(t => t.classList.remove('active'));
+c.classList.add('active'); selectedCol = h; run();
+};
+colList.appendChild(c);
+});
+}
+}
+
+function setMode(m) {
+document.getElementById('modeFirst').checked = (m === 'first');
+document.getElementById('modeSecond').checked = (m === 'second');
+if (selectedCol) run();
+}
+
+function run() {
+if (!selectedCol || rawData.length === 0) {
+alert('請選擇欄位或上傳資料');
+return;
+}
+
+showLoading(true);
+const isSecond = document.getElementById('modeSecond').checked;
+const counts = new Array(isSecond ? 10 : 9).fill(0);
+let valid = 0;
+validNumbers = [];
+anomalies = [];
+normals = [];
+const digitRegex = /[1-9]/g;
+
+rawData.forEach((row, index) => {
+const val = row[selectedCol];
+if (typeof val !== 'number' && typeof val !== 'string') return;
+const s = val.toString().replace(/[^0-9.]/g, '');
+const matches = s.match(digitRegex);
+if (!matches) {
+normals.push(row);
+return;
+}
+
+let digit;
+const firstDigit = parseInt(matches[0]);
+if (isSecond && matches[1]) {
+digit = parseInt(matches[1]);
+} else {
+digit = firstDigit;
+}
+
+if (!isNaN(digit)) {
+const idx = isSecond ? digit : digit - 1;
+if (counts[idx] !== undefined) {
+counts[idx]++;
+valid++;
+const entry = { digit: digit, row: row, index: index };
+validNumbers.push(entry);
+}
+}
+});
+
+if (valid === 0) {
+alert('選定欄位無有效數字，請檢查資料');
+showLoading(false);
+return;
+}
+
+const actual = counts.map(c => (c / valid * 100));
+const theo = isSecond ? THEO_SECOND : THEO_FIRST;
+const mad = actual.reduce((acc, p, i) => acc + Math.abs(p / 100 - theo[i] / 100), 0) / theo.length;
+
+analysisResult = { actual, theo, mad, valid };
+
+validNumbers.forEach(n => {
+const dev = Math.abs(actual[isSecond ? n.digit : n.digit - 1] - theo[isSecond ? n.digit : n.digit - 1]);
+if (dev > 2 || (!isSecond && n.digit >= 7)) {
+anomalies.push(n.row);
+} else {
+normals.push(n.row);
+}
+});
+
+updateUI(valid, mad, actual, theo, isSecond, validNumbers);
+showLoading(false);
+}
+
+function updateUI(count, mad, actual, theo, isSecond, validNumbers) {
+document.getElementById('statCount').innerText = count;
+document.getElementById('statMad').innerText = mad.toFixed(4);
+const status = document.getElementById('statStatus');
+status.innerText = mad < 0.015 ? "低風險" : "高風險警告";
+status.style.color = mad < 0.015 ? "var(--success)" : "var(--danger)";
+
+if (chartInstance) chartInstance.destroy();
+chartInstance = new Chart(document.getElementById('benfordChart'), {
+type: 'bar',
+data: {
+labels: isSecond ? [0,1,2,3,4,5,6,7,8,9] : [1,2,3,4,5,6,7,8,9],
+datasets: [
+{ label: '實際分佈 %', data: actual, backgroundColor: '#2563eb' },
+{ label: '理論分佈 %', data: theo, type: 'line', borderColor: '#ef4444' }
+]
+},
+options: { responsive: true }
+});
+
+const head = document.getElementById('tableHead');
+head.innerHTML = `<tr>${headers.slice(0, 5).map(h => `<th>${h}</th>`).join('')}</tr>`;
+const body = document.getElementById('tableBody');
+body.innerHTML = '';
+const filteredAnomalies = validNumbers.filter(n => {
+const dev = Math.abs(actual[isSecond ? n.digit : n.digit - 1] - theo[isSecond ? n.digit : n.digit - 1]);
+return dev > 2 || (!isSecond && n.digit >= 7);
+});
+filteredAnomalies.slice(0, 100).forEach(n => {
+const tr = document.createElement('tr');
+tr.className = 'high-risk';
+headers.slice(0, 5).forEach(h => {
+const td = document.createElement('td');
+td.innerText = n.row[h];
+tr.appendChild(td);
+});
+body.appendChild(tr);
+});
+}
+
+function exportExcel() {
+if (!analysisResult) {
+alert('請先執行分析');
+return;
+}
+
+const isSecond = document.getElementById('modeSecond').checked;
+
+// 產生日期時間戳
+const now = new Date();
+const year = now.getFullYear();
+const month = String(now.getMonth() + 1).padStart(2, '0');
+const day = String(now.getDate()).padStart(2, '0');
+const hour = String(now.getHours()).padStart(2, '0');
+const minute = String(now.getMinutes()).padStart(2, '0');
+const timestamp = `${year}${month}${day}_${hour}${minute}`;
+const filename = `Benford_Report_${timestamp}.xlsx`;
+
+const summaryData = [
+{ '項目': '分析維度', '值': isSecond ? '第二位數' : '第一位數' },
+{ '項目': '樣本數', '值': analysisResult.valid },
+{ '項目': 'MAD 偏差', '值': analysisResult.mad.toFixed(4) },
+{ '項目': '風險評估', '值': analysisResult.mad < 0.015 ? '低風險' : '高風險警告' },
+{ '項目': '分析時間', '值': now.toLocaleString('zh-TW') }
+];
+
+const distData = analysisResult.actual.map((a, i) => ({
+'數字': i + (isSecond ? 0 : 1),
+'實際 %': a.toFixed(2),
+'理論 %': analysisResult.theo[i]
+}));
+
+const exportWb = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(exportWb, XLSX.utils.json_to_sheet(summaryData), "摘要頁");
+XLSX.utils.book_append_sheet(exportWb, XLSX.utils.json_to_sheet(distData), "圖表頁");
+XLSX.utils.book_append_sheet(exportWb, XLSX.utils.json_to_sheet(rawData), "原始資料");
+XLSX.utils.book_append_sheet(exportWb, XLSX.utils.json_to_sheet(anomalies), "異常資料");
+XLSX.utils.book_append_sheet(exportWb, XLSX.utils.json_to_sheet(normals), "正常資料");
+
+XLSX.writeFile(exportWb, filename);
+}
+
+function clearData() {
+rawData = [];
+headers = [];
+selectedCol = null;
+selectedSheet = null;
+analysisResult = null;
+validNumbers = [];
+anomalies = [];
+normals = [];
+wb = null;
+if (chartInstance) chartInstance.destroy();
+chartInstance = null;
+document.getElementById('dashboard').style.display = 'none';
+document.getElementById('sheetSection').style.display = 'none';
+document.getElementById('colSection').style.display = 'none';
+document.getElementById('statCount').innerText = '0';
+document.getElementById('statMad').innerText = '0.0000';
+document.getElementById('statStatus').innerText = '-';
+document.getElementById('tableBody').innerHTML = '';
+document.getElementById('sheetList').innerHTML = '';
+document.getElementById('columnList').innerHTML = '';
+alert('資料已清除，準備進行下一筆分析。');
+}
+
+// 說明 Modal 控制
+document.getElementById('help-btn').onclick = function() {
+document.getElementById('helpModal').style.display = "block";
+};
+
+function closeModal() {
+document.getElementById('helpModal').style.display = "none";
+}
+
+window.onclick = function(event) {
+const modal = document.getElementById('helpModal');
+if (event.target === modal) {
+modal.style.display = "none";
+}
+};
+</script>
+</body>
+</html>
